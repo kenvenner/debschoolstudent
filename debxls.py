@@ -83,7 +83,7 @@ def dumpAllRecords(csvout_dumpall, xls_columns_out, xlsdata):
 
 
 # read the file list using glob
-xlsfilelist = glob.glob('./*.xls*')
+xlsfilelist = glob.glob('./*.xlsx')
 
 # file list
 # xlsfilelist = ['./Actual Dispersement record.xlsx']
@@ -114,7 +114,8 @@ for xlsfilename in xlsfilelist:
         sheettitle = s.title
         sheetmaxrow = s.max_row
         sheetmaxcol = s.max_column
-        
+
+        #### Find the header row - need ot define the column and the value
         # value we are looking for
         cellValue = 'Date'
         
@@ -123,7 +124,18 @@ for xlsfilename in xlsfilelist:
         
         # find the row that has the headers
         for row_header in range(1,6):
-            if s.cell(row=row_header, column=column).value == cellValue:
+            # check to see if this the header row
+            if s.cell(row=row_header, column=column).value == xls_columns[column]:
+                # this is the header row - validate a few more fields
+                column = 5
+                if s.cell(row=row_header, column=column).value != xls_columns[column]:
+                    print('Column[', column, '] should be (', xls_columns[column], ') but is:', s.cell(row=row_header, column=column).value)
+                    print('Workbook:', xlsfilename)
+                    print('Sheetname:', sheetName)
+                    print('Row:', row_header)
+                    print('Exit and fix or remove XLSX')
+                    sys.exit(1)
+                # did not fail - so break out we have the header
                 break
         
         # print out what we found
@@ -163,8 +175,6 @@ for xlsfilename in xlsfilelist:
                             rec['Warning'] += ':' + 'Date-string'
                         else:
                             rec['Warning'] = 'Date-string'
-                        # make sure there are no commas in this string
-                        re.sub(',', ';', rec['Date'])
                     elif isinstance(rec['Date'],int):
                         # date should not be a string field - warning message
                         if 'Warning' in rec.keys():
@@ -188,10 +198,6 @@ for xlsfilename in xlsfilelist:
                             
                 # MESSAGE - special row processing logic
                 if xls_columns[col] == 'Message':
-                    # strip out an commas if we are of type string
-                    if isinstance(rec['Message'], str):
-                        re.sub(',', ';', rec['Message'])
-
                     # check for what grant type this should be
                     if rec['Message'] == None:
                         # message is blank
@@ -238,6 +244,9 @@ for xlsfilename in xlsfilelist:
                     rec[xls_columns[col]] = rec[xls_columns[col]].strftime('%m-%d-%Y')
                 else:
                     rec[xls_columns[col]] = str(rec[xls_columns[col]])
+
+                # make sure there are no comma's in these strings
+                rec[xls_columns[col]] = re.sub(',', ';', rec[xls_columns[col]])
 
             # check to see that the warning field is populated
             if 'Warning' not in rec.keys():
