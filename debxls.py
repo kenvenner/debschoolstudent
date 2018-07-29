@@ -1,29 +1,23 @@
 from openpyxl import load_workbook
-#from datetime import datetime
 
+import argparse
 import sys
 import datetime
 import re
 import glob
 
-# filter values
-paytype      = 'FPELL'
+# execution example:
+# python debxls.py FPELL 01-01-2017 12-31-2017
+#
+
+
+# filter values (used if we were not using command line args) - no longer required
+GrantType    = 'FPELL'
 startdatestr = '01-01-2017'
 enddatestr   = '12-31-2017'
 
-
-
-
-
-# output filenames used
+# defined output filenames
 csvout_dumpall = 'DumpAllData.csv'
-csvout_filtered = 'Filter-' + paytype + '-' + startdatestr + '-' + enddatestr + '.csv'
-
-
-
-#convert to date fields
-startdate = datetime.datetime.strptime(startdatestr, '%m-%d-%Y')
-enddate = datetime.datetime.strptime(enddatestr, '%m-%d-%Y')
 
 
 # set up at the beginning - the columns that we are reading in
@@ -52,6 +46,10 @@ xls_columns_out = [
     'Warning'
 ]
 
+# input date format that we are expecting
+input_date_format = '%m-%d-%Y'
+low_date_string   = '01-01-2000'
+
 # ----------------- functions to start --------------------------------------------------------------
 
 # this routine dumps out all the records
@@ -77,18 +75,75 @@ def dumpAllRecords(csvout_dumpall, xls_columns_out, xlsdata):
     # close the output file
     csvout.close()
             
+    # display the message
+    print('Output file created:', csvout_dumpall)
+    
+# this routine shows all the XLS files that don't have a matching XLSX file - warnings
+def xlsNoxlsxWarning( xlsfilelist, xlsxfilelist):
+    
+    # check for unprocessed files that are xls not xlsx
+    unprocessed = []
+    for xlsfile in xlsfilelist:
+        # add the x to the filename
+        xlsxfile = xlsfile + 'x'
+        # check to see if this file exists - not exist capture the information
+        if xlsxfile not in xlsxfilelist:
+            unprocessed.append(xlsfile)
+
+    # check - and if the lenght is not zero
+    if len(unprocessed) > 0:
+        print('The following XLS files were not processed - we can only process XLSX files - please convert or remove:')
+        for file in unprocessed:
+            print('XLS_file:', file)
+
+
 # -----------------------------------------------------------------------------------------------            
 
 
+# routine used to check that an entered string meets a date/time format and is a valid date
+def valid_date(s):
+    try:
+        if datetime.datetime.strptime(s, input_date_format):
+            return s
+    except ValueError:
+        msg = "Not a valid date: '{0}'.".format(s)
+        raise argparse.ArgumentTypeError(msg)
+
+
+# -----------------------------------------------------------------------------------------------            
+
+    
+# command line processor
+parser = argparse.ArgumentParser()
+parser.add_argument("GrantType", help="GrantType the string you use here", choices=['REGFEE','KIT','FPELL','FDSL-U','FDSL-S','TITLE-IV'])
+parser.add_argument("StartDate", help="StartDate in MM-DD-YYYY format", type=valid_date)
+parser.add_argument("EndDate", help="EndDate in MM-DD-YYYY format", type=valid_date)
+args = parser.parse_args()
+
+# pull the command line options
+GrantType    = args.GrantType
+startdatestr = args.StartDate
+enddatestr   = args.EndDate
+
+#convert to date fields
+startdate = datetime.datetime.strptime(startdatestr, input_date_format)
+enddate   = datetime.datetime.strptime(enddatestr,   input_date_format)
+
+# output filenames - calculated based on input values
+csvout_filtered = 'Filter-' + GrantType + '-' + startdatestr + '-' + enddatestr + '.csv'
 
 
 # read the file list using glob
-xlsfilelist = glob.glob('./*.xlsx')
+xlsxfilelist = glob.glob('./*.xlsx')
+xlsfilelist  = glob.glob('./*.xls')
 
 # file list
-# xlsfilelist = ['./Actual Dispersement record.xlsx']
-# print( xlsfilelist )
+# xlsxfilelist = ['./Actual Dispersement record.xlsx']
+# print( xlsxfilelist )
 # sys.exit()
+
+# display the warnings about xls with no xlsx
+xlsNoxlsxWarning( xlsfilelist, xlsxfilelist)
 
 # create array that holds all the read in data
 xlsdata = []
@@ -99,7 +154,7 @@ xlsdataerror = []
 #--------------------------------------------------------------------------------------------
 
 # loop through the files of interest
-for xlsfilename in xlsfilelist:
+for xlsfilename in xlsxfilelist:
 
     # Load in the workbook (set the data_only=True flag to get the value on the formula)
     wb = load_workbook(xlsfilename, data_only=True)
@@ -116,8 +171,6 @@ for xlsfilename in xlsfilelist:
         sheetmaxcol = s.max_column
 
         #### Find the header row - need ot define the column and the value
-        # value we are looking for
-        cellValue = 'Date'
         
         # the column that has this value
         column = 1
@@ -142,7 +195,7 @@ for xlsfilename in xlsfilelist:
         #print ('found the matching column:', row_header, ':', column)
 
         # create starting comparison date
-        lastDate = datetime.datetime.strptime('01-01-2000', '%m-%d-%Y')
+        lastDate = datetime.datetime.strptime(low_date_string, input_date_format)
         
         # pull in all the data from this sheet that we are interested in 
         for row in range(row_header+1, sheetmaxrow):
@@ -241,7 +294,7 @@ for xlsfilename in xlsfilelist:
                 # convert values to string
                 if isinstance(rec[xls_columns[col]], datetime.datetime):
                     #print(sheetName,':',row,':',col,':converted-field')
-                    rec[xls_columns[col]] = rec[xls_columns[col]].strftime('%m-%d-%Y')
+                    rec[xls_columns[col]] = rec[xls_columns[col]].strftime(input_date_format)
                 else:
                     rec[xls_columns[col]] = str(rec[xls_columns[col]])
 
@@ -269,7 +322,7 @@ dumpAllRecords(csvout_dumpall, xls_columns_out, xlsdata)
 xlsfiltered = []
 for rec in xlsdata:
     # check to see if this is the right granttype
-    if rec['GrantType'] == paytype:
+    if rec['GrantType'] == GrantType:
         # check to see if this is a record of date type
         if isinstance(rec['DateDate'], datetime.datetime):
             # check to see if we are aligned to start date
