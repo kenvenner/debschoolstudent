@@ -10,6 +10,8 @@ import glob
 # python debxls.py FPELL 01-01-2017 12-31-2017
 #
 
+# set the appversion
+AppVersion   = '1.02'
 
 # filter values (used if we were not using command line args) - no longer required
 GrantType    = 'FPELL'
@@ -49,6 +51,9 @@ xls_columns_out = [
 # input date format that we are expecting
 input_date_format = '%m-%d-%Y'
 low_date_string   = '01-01-2000'
+
+# capture the current date time
+now = datetime.datetime.now()
 
 # ----------------- functions to start --------------------------------------------------------------
 
@@ -291,6 +296,20 @@ for xlsfilename in xlsxfilelist:
                         rec['GrantType'] = ''
 
                 
+                # PAID - special row processing logic
+                if xls_columns[col] == 'Paid':
+                    # check to see if this is None or Zero
+                    if rec['Paid'] == 0 or rec['Paid'] == None:
+                        # check to see if the Date field is type date and the date is earlier than today
+                        if isinstance(rec['DateDate'], datetime.datetime):
+                            # this is a date see if it is in the past
+                            if rec['DateDate'] < now:
+                                # add to the record a message
+                                if 'Warning' in rec.keys():
+                                    rec['Warning'] += ':' + 'PASTDUE'
+                                else:
+                                    rec['Warning'] = 'PASTDUE'
+                                
                 # convert values to string
                 if isinstance(rec[xls_columns[col]], datetime.datetime):
                     #print(sheetName,':',row,':',col,':converted-field')
