@@ -1,4 +1,9 @@
-from openpyxl import load_workbook
+# 2018-08-12;kv;changed import because we now process xlsx and xls files
+#from openpyxl import load_workbook
+import openpyxl
+
+# 2018-08-12;kv;added this routine to process xls files
+import xlrd
 
 import argparse
 import sys
@@ -11,7 +16,7 @@ import glob
 #
 
 # set the appversion
-AppVersion   = '1.02'
+AppVersion   = '1.03'
 
 # filter values (used if we were not using command line args) - no longer required
 GrantType    = 'FPELL'
@@ -138,17 +143,22 @@ enddate   = datetime.datetime.strptime(enddatestr,   input_date_format)
 csvout_filtered = 'Filter-' + GrantType + '-' + startdatestr + '-' + enddatestr + '.csv'
 
 
-# read the file list using glob
-xlsxfilelist = glob.glob('./*.xlsx')
-xlsfilelist  = glob.glob('./*.xls')
+# read the file list using glob to load in xlsx and then xls files
+xlsfilelist = glob.glob('./*.xlsx')
+xlsfilelist.extend( glob.glob('./*.xls') )
 
+# uncomment when debugging xls only files
+# xlsfilelist = glob.glob('./*.xls')
+
+# debugging
 # file list
 # xlsxfilelist = ['./Actual Dispersement record.xlsx']
 # print( xlsxfilelist )
 # sys.exit()
 
+# 2018-08-12;kv;this code removed because we can now process xlsx and xls files
 # display the warnings about xls with no xlsx
-xlsNoxlsxWarning( xlsfilelist, xlsxfilelist)
+#xlsNoxlsxWarning( xlsfilelist, xlsxfilelist)
 
 # create array that holds all the read in data
 xlsdata = []
@@ -159,22 +169,44 @@ xlsdataerror = []
 #--------------------------------------------------------------------------------------------
 
 # loop through the files of interest
-for xlsfilename in xlsxfilelist:
+for xlsfilename in xlsfilelist:
 
-    # Load in the workbook (set the data_only=True flag to get the value on the formula)
-    wb = load_workbook(xlsfilename, data_only=True)
+    # determine what filetype we have here
+    xlsxfiletype = re.search('.xlsx$', xlsfilename)
+
+    # debugging
+    #print('xlsfilename:',xlsfilename)
+    #print('xlsxfiletype:',xlsxfiletype)
     
-    # get the list of sheets that need to process
-    for sheetName in wb.sheetnames:
+    # Load in the workbook (set the data_only=True flag to get the value on the formula)
+    if xlsxfiletype:
+        # XLSX file
+        wb = openpyxl.load_workbook(xlsfilename, data_only=True)
+        sheetNames = wb.sheetnames
+    else:
+        # XLS file
+        wb = xlrd.open_workbook(xlsfilename)
+        sheetNames = wb.sheet_names()
 
+
+    # get the list of sheets that need to process
+    for sheetName in sheetNames:
         # create a workbook sheet object - using the name to get to the right sheet
-        s = wb[sheetName]
+        if xlsxfiletype:
+            s = wb[sheetName]
+        else:
+            s = wb.sheet_by_name(sheetName)
         
         # grab the sheet title - not sure i need this - that is already in sheetName
-        sheettitle = s.title
-        sheetmaxrow = s.max_row
-        sheetmaxcol = s.max_column
-
+        if xlsxfiletype:
+            sheettitle = s.title
+            sheetmaxrow = s.max_row
+            sheetmaxcol = s.max_column
+        else:
+            sheettitle = s.name
+            sheetmaxrow = s.nrows
+            sheetmaxcol = s.ncols
+        
         #### Find the header row - need ot define the column and the value
         
         # the column that has this value
@@ -182,12 +214,25 @@ for xlsfilename in xlsxfilelist:
         
         # find the row that has the headers
         for row_header in range(1,6):
+            # get cell value
+            if xlsxfiletype:
+                cValue = s.cell(row=row_header, column=column).value
+            else:
+                cValue = s.cell(row_header, column-1).value
+
             # check to see if this the header row
-            if s.cell(row=row_header, column=column).value == xls_columns[column]:
+            if cValue == xls_columns[column]:
                 # this is the header row - validate a few more fields
                 column = 5
-                if s.cell(row=row_header, column=column).value != xls_columns[column]:
-                    print('Column[', column, '] should be (', xls_columns[column], ') but is:', s.cell(row=row_header, column=column).value)
+                # get cell value again
+                if xlsxfiletype:
+                    cValue = s.cell(row=row_header, column=column).value
+                else:
+                    cValue = s.cell(row_header, column-1).value
+                # check value again
+                if cValue != xls_columns[column]:
+                    # we have a problem - so display message and exit
+                    print('Column[', column, '] should be (', xls_columns[column], ') but is:', cValue)
                     print('Workbook:', xlsfilename)
                     print('Sheetname:', sheetName)
                     print('Row:', row_header)
@@ -196,7 +241,7 @@ for xlsfilename in xlsxfilelist:
                 # did not fail - so break out we have the header
                 break
         
-        # print out what we found
+        # debugging - print out what we found
         #print ('found the matching column:', row_header, ':', column)
 
         # create starting comparison date
@@ -215,12 +260,22 @@ for xlsfilename in xlsxfilelist:
             # go through the columns of this row
             for col in range(1,7):
                 # now populate the record
-                rec[xls_columns[col]] = s.cell(row=row, column=col).value
+                if xlsxfiletype:
+                    rec[xls_columns[col]] = s.cell(row=row, column=col).value
+                else:
+                    rec[xls_columns[col]] = s.cell(row, col-1).value
 
                 # DATE - special row processing logic
                 if xls_columns[col] == 'Date':
                     # debugging
-                    # print('type:rec[date]:', type(rec['Date']), '-value:', rec['Date'])
+                    #print('type:rec[date]:', type(rec['Date']), '-value:', rec['Date'])
+
+                    # convert to datetime if the value is float (usually used for xls files)
+                    if isinstance(rec['Date'],float):
+                        # use the routine to convert the field
+                        rec['Date'] = xlrd.xldate.xldate_as_datetime(rec['Date'],0)
+                        # debugging
+                        #print('type:rec[date]2:', type(rec['Date']), '-value:', rec['Date'])
                     
                     # create a copy to use at other time
                     rec['DateDate'] = rec['Date']
@@ -258,6 +313,33 @@ for xlsfilename in xlsxfilelist:
                 if xls_columns[col] == 'Message':
                     # check for what grant type this should be
                     if rec['Message'] == None:
+                        # message is blank
+                        rec['GrantType'] = ''
+
+                        # debugging
+                        #print('message-blank-date-value:', rec['Date'])
+                        
+                        # now test if the date field is populated
+                        if rec ['Date'] != 'None':
+                            # debugging
+                            # print('message-blank-date-not-none-date-value:', rec['Date'])
+                            
+                            # add to the record a message
+                            if 'Warning' in rec.keys():
+                                rec['Warning'] += ':' + 'Msg-blank'
+                            else:
+                                rec['Warning'] = 'Msg-blank'
+                    elif not isinstance(rec['Message'],str):
+                        # message is not string
+                        rec['GrantType'] = ''
+
+                        # message is not string - so we should not regex
+                        if 'Warning' in rec.keys():
+                            rec['Warning'] += ':' + 'Msg-NotString'
+                        else:
+                            rec['Warning'] = 'Msg-NotString'
+                    # check for what grant type this should be
+                    elif rec['Message'] == '':
                         # message is blank
                         rec['GrantType'] = ''
 
@@ -358,8 +440,4 @@ dumpAllRecords(csvout_filtered, xls_columns_out, xlsfiltered)
 
 sys.exit()
 
-# 
-row = 2
-# first row of titles
-for column in range(1,6):
-    print(s.cell(row=row, column=column).value)
+# eof
