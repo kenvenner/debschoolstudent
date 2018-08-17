@@ -16,7 +16,7 @@ import glob
 #
 
 # set the appversion
-AppVersion   = '1.03'
+AppVersion   = '1.04'
 
 # filter values (used if we were not using command line args) - no longer required
 GrantType    = 'FPELL'
@@ -171,6 +171,12 @@ xlsdataerror = []
 # loop through the files of interest
 for xlsfilename in xlsfilelist:
 
+    # check the filetype to see if it starts with ~, if so skip filename
+    if re.match('\.\\\\~', xlsfilename):
+        print('Skipped filename...:', xlsfilename)
+        continue
+
+    
     # determine what filetype we have here
     xlsxfiletype = re.search('.xlsx$', xlsfilename)
 
